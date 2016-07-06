@@ -1,19 +1,30 @@
 package com.aven.floadingview;
 
 import android.annotation.TargetApi;
+import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.AppOpsManager;
 import android.app.usage.UsageEvents;
 import android.app.usage.UsageStats;
 import android.app.usage.UsageStatsManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.net.Uri;
+import android.os.Binder;
 import android.os.Build;
 import android.provider.Settings;
 import android.text.TextUtils;
+import android.util.Log;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,14 +55,8 @@ public class PackageUtils {
 
     public static boolean isLauncherForeground(Context context) {
         UsageStatsManager sUsageStatsManager;
-//        ActivityManager activityManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
         List<String> lanuchers = getLaunchers(context);
-//        List<ActivityManager.RunningTaskInfo> runningTaskInfos =  activityManager.getRunningTasks(1);
-//
-//        if(lanuchers.contains(runningTaskInfos.get(0).baseActivity.getPackageName())) {
-//            isLauncherForeground = true;
-//        }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP ) {
             ActivityManager activityManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
             List<ActivityManager.RunningTaskInfo> appTasks = activityManager.getRunningTasks(1);
             if (null != appTasks && !appTasks.isEmpty()) {
@@ -59,21 +64,24 @@ public class PackageUtils {
                 if (lanuchers.contains(packageName)) {
                     return true;
                 }
-//            isLauncherForeground = true;
             }
         } else {
+            if (RomUtils.getRomType() == RomUtils.RomType.MEIZU) {
+                //魅族 -- 做特殊处理
+                ActivityManager activityManager = (ActivityManager) context.getApplicationContext().getSystemService(Context.ACTIVITY_SERVICE);
+                List<ActivityManager.RunningAppProcessInfo> processInfos = activityManager.getRunningAppProcesses();
+                if (null != processInfos && !processInfos.isEmpty() && processInfos.size() > 1) {
+                    String packageName = processInfos.get(0).processName;
+                    Log.e("hyf", "packageName = " + packageName);
+                    if (lanuchers.contains(packageName)) {
+                        return true;
+                    }
+                }
+            }
             long endTime = System.currentTimeMillis();
             sUsageStatsManager = (UsageStatsManager) context.getSystemService(Context.USAGE_STATS_SERVICE);
             String result = "";
-//            UsageEvents.Event event = new UsageEvents.Event();
-//            UsageEvents usageEvents = sUsageStatsManager.queryEvents(beginTime, endTime);
             List<UsageStats> queryUsageStats = sUsageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_BEST,endTime - 2000, endTime);
-//            while (usageEvents.hasNextEvent()) {
-//                usageEvents.getNextEvent(event);
-//                if (event.getEventType() == UsageEvents.Event.MOVE_TO_FOREGROUND) {
-//                    result = event.getPackageName();
-//                }
-//            }
             UsageStats recentStats = null;
             for (UsageStats usageStats : queryUsageStats) {
                 if (recentStats == null || recentStats.getLastTimeUsed() < usageStats.getLastTimeUsed()) {
@@ -95,6 +103,8 @@ public class PackageUtils {
         }
         return false;
     }
+
+
     public static boolean isNoOptions(Context context) {
         PackageManager packageManager = context.getPackageManager();
         Intent intent = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
@@ -113,5 +123,56 @@ public class PackageUtils {
         return true;
     }
 
+
+    /**
+     * 打开MIUI权限管理界面(MIUI v5, v6)
+     * @param context
+     */
+    public static void openMiuiPermissionActivity(Context context) {
+        Intent intent = new Intent("miui.intent.action.APP_PERM_EDITOR");
+        RomUtils.MiuiType miuiType = RomUtils.getMiuiType();
+
+        if (miuiType == RomUtils.MiuiType.V5) {
+            openAppDetailActivity(context, context.getPackageName());
+            return;
+        } else if (miuiType == RomUtils.MiuiType.V6) {
+            intent.setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.AppPermissionsEditorActivity");
+            intent.putExtra("extra_pkgname", context.getPackageName());
+        }
+
+        if (isIntentAvailable(context, intent)) {
+            if (context instanceof MainActivity) {
+                MainActivity a = (MainActivity) context;
+                a.startActivityForResult(intent, MainActivity.SYSTEM_SHOW_FLOAT_VIEW);
+            }
+        } else {
+        }
+    }
+
+    public static void openAppDetailActivity(Context context, String packageName) {
+        Intent intent = null;
+        if (Build.VERSION.SDK_INT >= 9) {
+            intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            Uri uri = Uri.fromParts("package", packageName, null);
+            intent.setData(uri);
+        }
+        if (isIntentAvailable(context, intent)) {
+            if (context instanceof MainActivity) {
+                MainActivity a = (MainActivity) context;
+                a.startActivityForResult(intent, MainActivity.SYSTEM_SHOW_FLOAT_VIEW);
+            }
+        } else {
+        }
+    }
+
+    /**
+     * 判断是否有可以接受的Activity
+     * @param context
+     * @return
+     */
+    public static boolean isIntentAvailable(Context context, Intent intent) {
+        if (intent == null) return false;
+        return context.getPackageManager().queryIntentActivities(intent, PackageManager.GET_ACTIVITIES).size() > 0;
+    }
 
 }

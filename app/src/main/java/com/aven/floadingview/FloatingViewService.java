@@ -34,6 +34,8 @@ public class FloatingViewService extends Service {
     float mOriY = 0;
     private Handler mHandler;
     private boolean flag = true;
+    private int mScreenWidth;
+    private float mAllMemory;
 
     @Nullable
     @Override
@@ -42,8 +44,15 @@ public class FloatingViewService extends Service {
     }
 
     @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        return START_STICKY;
+    }
+
+    @Override
     public void onCreate() {
         super.onCreate();
+        mScreenWidth = DisplayUtils.getScreenWidth(this);
+        mAllMemory = DeviceUtils.getTotalMemory(this);
         mHandler = new Handler(Looper.getMainLooper());
         genFloatingView();
     }
@@ -57,7 +66,7 @@ public class FloatingViewService extends Service {
         } else {
             mLayoutParams.type = WindowManager.LayoutParams.TYPE_TOAST;
         }
-//        mLayoutParams.type = WindowManager.LayoutParams.TYPE_TOAST;
+//        mLayoutParams.type = WindowManager.LayoutParams.TYPE_SYSTEM_ALERT;
         //设置图片格式，效果为背景透明
         mLayoutParams.format = PixelFormat.RGBA_8888;
         //设置浮动窗口不可聚焦（实现操作除浮动窗口外的其他可见窗口的操作）
@@ -108,6 +117,16 @@ public class FloatingViewService extends Service {
                         }
                         break;
 
+                    case MotionEvent.ACTION_UP:
+                        int x = (int) event.getRawX() - mFloatView.getMeasuredWidth() / 2;
+                        if (x > mScreenWidth / 2) {
+                            mLayoutParams.x = mScreenWidth - mFloatView.getMeasuredWidth() / 2;
+                        } else {
+                            mLayoutParams.x = 0;
+                        }
+                        mWindowManager.updateViewLayout(mFloatLayout, mLayoutParams);
+                        break;
+
                 }
 
                 return false;  //此处必须返回false，否则OnClickListener获取不到监听
@@ -138,6 +157,8 @@ public class FloatingViewService extends Service {
         return result;
     }
 
+    boolean preIsHome = true;
+    float mem;
     private void checkIsHome() {
         new Thread()
         {
@@ -145,18 +166,31 @@ public class FloatingViewService extends Service {
             {
                 while (flag)
                 {
-                    try
-                    {
-                        final boolean isHome = PackageUtils.isLauncherForeground(FloatingViewService.this);
-                        Log.e("hyf", "isHome = " + isHome);
-                            mHandler.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    mFloatLayout.setVisibility(isHome ? View.VISIBLE : View.GONE);
-                                }
-                            });
+					try {
+						final boolean isHome = PackageUtils
+								.isLauncherForeground(FloatingViewService.this);
+						Log.e("hyf", "isHome = " + isHome);
+
+						final float availableMem = DeviceUtils
+								.getAvailMemory(FloatingViewService.this);
+                        mem = (float) ((mAllMemory - availableMem )/ mAllMemory) * 100;
+						mHandler.post(new Runnable() {
+							@Override
+							public void run() {
+								//                                    mFloatLayout.setVisibility(isHome ? View.VISIBLE : View.GONE);
+								mFloatView.setText((int)mem + "%");
+								if (preIsHome != isHome) {
+									if (isHome) {
+										mWindowManager.addView(mFloatLayout, mLayoutParams);
+									} else {
+										mWindowManager.removeView(mFloatLayout);
+									}
+									preIsHome = isHome;
+								}
+							}
+						});
                         sleep(1000);
-                    }
+					}
                     catch (InterruptedException e)
                     {
                         e.printStackTrace();
